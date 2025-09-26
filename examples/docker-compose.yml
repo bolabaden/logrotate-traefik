@@ -1,0 +1,110 @@
+# Docker Compose example for Traefik Log Rotation service
+# This example shows how to integrate logrotate-traefik with your existing setup
+
+version: '3.8'
+
+services:
+  # Example Traefik service (for reference)
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik
+    restart: unless-stopped
+    command:
+      - --api.dashboard=true
+      - --api.debug=true
+      - --log.level=INFO
+      - --log.filePath=/var/log/traefik/traefik.log
+      - --log.format=json
+      - --accesslog=true
+      - --accesslog.filePath=/var/log/traefik/access.log
+      - --accesslog.format=json
+      - --providers.docker=true
+      - --providers.docker.exposedByDefault=false
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - traefik-logs:/var/log/traefik
+    networks:
+      - web
+
+  # Traefik Log Rotation and Monitoring service
+  logrotate-traefik:
+    # Build from local source
+    build: 
+      context: ..
+      dockerfile: Dockerfile
+    # Or use pre-built image
+    # image: your-registry/logrotate-traefik:latest
+    
+    container_name: logrotate-traefik
+    restart: unless-stopped
+    
+    # Resource limits for lightweight operation
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 64M
+        reservations:
+          memory: 8M
+    
+    volumes:
+      # Mount the same log volume as Traefik
+      - traefik-logs:/var/log/traefik:rw
+    
+    environment:
+      # Timezone configuration
+      TZ: ${TZ:-America/Chicago}
+      
+      # Log configuration
+      LOG_LEVEL: ${LOG_LEVEL:-info}                    # debug, info, warning, error
+      TRAEFIK_LOG_FILENAME: ${TRAEFIK_LOG_FILENAME:-traefik.log}
+      
+      # Logrotate configuration
+      LOGROTATE_LOOP_SLEEP: ${LOGROTATE_LOOP_SLEEP:-300}        # Check interval in seconds
+      LOGROTATE_MAXSIZE: ${LOGROTATE_MAXSIZE:-10M}              # Max file size before rotation
+      LOGROTATE_MAXCOUNT: ${LOGROTATE_MAXCOUNT:-20}             # Number of rotated files to keep
+      LOGROTATE_ROTATE_FREQ: ${LOGROTATE_ROTATE_FREQ:-hourly}   # hourly, daily, weekly, monthly
+      LOGROTATE_MAXDIR_MB: ${LOGROTATE_MAXDIR_MB:-50}          # Max total directory size in MB
+      LOGROTATE_KEEP_GZ: ${LOGROTATE_KEEP_GZ:-10}              # Number of compressed files to keep
+      
+      # Monitoring configuration
+      STATUS_CODES: ${STATUS_CODES:-100-999}                    # Status codes to monitor (comma-separated ranges)
+    
+    networks:
+      - web
+    
+    # Health check to ensure service is running
+    healthcheck:
+      test: ["CMD", "test", "-f", "/var/log/traefik/traefik.log"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    
+    # Ensure Traefik starts first
+    depends_on:
+      - traefik
+    
+    # Labels for documentation and monitoring
+    labels:
+      - "com.docker.compose.service=logrotate-traefik"
+      - "description=Traefik log rotation and monitoring service"
+      - "version=1.0.0"
+
+networks:
+  web:
+    external: false
+
+volumes:
+  traefik-logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${CONFIG_PATH:-./volumes}/traefik/logs

@@ -1,0 +1,41 @@
+# Development files
+.git/
+.gitignore
+*.md
+LICENSE
+
+# Test files
+test-logs/
+*.log
+*.gz
+
+# Build artifacts
+.env
+.env.*
+
+# Documentation
+examples/
+docs/
+
+# Development tools
+Makefile
+.vscode/
+.idea/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
