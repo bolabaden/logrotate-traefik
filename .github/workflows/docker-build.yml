@@ -1,0 +1,136 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+
+name: "Docker Build Test"
+run-name: ${{ github.actor }} - testing logrotate-traefik Docker build
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+permissions:
+  contents: "read"
+
+on:
+  push:
+    branches: ["*"]
+    paths:
+      - "Dockerfile"
+      - "scripts/**"
+      - ".github/workflows/docker-build.yml"
+  pull_request:
+    branches: ["main", "master"]
+    paths:
+      - "Dockerfile"
+      - "scripts/**"
+      - ".github/workflows/docker-build.yml"
+  workflow_dispatch:
+
+jobs:
+  build-test:
+    name: "Build Test - ${{ matrix.platform }}"
+    runs-on: "ubuntu-latest"
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: ["linux/amd64", "linux/arm64"]
+    steps:
+      - name: "Checkout repository"
+        uses: "actions/checkout@v4"
+        with:
+          fetch-depth: 0
+
+      - name: "Set up QEMU"
+        uses: "docker/setup-qemu-action@v3"
+
+      - name: "Set up Docker Buildx"
+        uses: "docker/setup-buildx-action@v3"
+
+      - name: "Build Docker image"
+        uses: "docker/build-push-action@v6"
+        with:
+          context: "."
+          file: "./Dockerfile"
+          platforms: "${{ matrix.platform }}"
+          tags: "logrotate-traefik:test-${{ github.sha }}"
+          labels: |
+            org.opencontainers.image.title=Traefik Log Rotation
+            org.opencontainers.image.description=Docker container for rotating and monitoring Traefik logs
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          push: false
+          load: ${{ matrix.platform == 'linux/amd64' }}
+          cache-from: "type=gha"
+          cache-to: "type=gha,mode=max"
+          build-args: |
+            PUID=1001
+            PGID=1001
+
+      - name: "Test image (AMD64 only)"
+        if: matrix.platform == 'linux/amd64'
+        run: |
+          # Create test logs
+          mkdir -p test-logs
+          echo '{"time":"2024-01-01T12:00:00Z","level":"info","msg":"test","ClientAddr":"192.168.1.100:54321","DownstreamStatus":200,"RequestHost":"example.com","RequestMethod":"GET","RequestPath":"/api/test","Duration":1500000,"ServiceName":"test-service"}' > test-logs/traefik.log
+
+          # Test container startup
+          docker run --rm -d \
+            --name test-logrotate-traefik \
+            -v $(pwd)/test-logs:/var/log/traefik \
+            -e LOG_LEVEL=debug \
+            -e LOGROTATE_LOOP_SLEEP=30 \
+            logrotate-traefik:test-${{ github.sha }}
+
+          # Wait for startup
+          sleep 10
+
+          # Check if container is running
+          docker ps | grep test-logrotate-traefik
+
+          # Check logs
+          docker logs test-logrotate-traefik
+
+          # Test health check
+          docker exec test-logrotate-traefik test -f /var/log/traefik/traefik.log
+
+          # Check if logrotate config was created
+          docker exec test-logrotate-traefik test -f /etc/logrotate.d/traefik
+
+          # Stop container
+          docker stop test-logrotate-traefik
+
+          echo "✅ Container test passed!"
+
+  lint-scripts:
+    name: "Lint Shell Scripts"
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: "Checkout repository"
+        uses: "actions/checkout@v4"
+
+      - name: "Install shellcheck"
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: "Lint shell scripts"
+        run: |
+          find scripts/ -name "*.sh" -type f -exec shellcheck {} +
+
+      - name: "Check script permissions"
+        run: |
+          # Check that shell scripts are executable
+          find scripts/ -name "*.sh" -type f ! -executable -print | \
+            { if read -r file; then echo "❌ Script not executable: $file"; exit 1; else echo "✅ All scripts are executable"; fi; }
+
+  dockerfile-lint:
+    name: "Lint Dockerfile"
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: "Checkout repository"
+        uses: "actions/checkout@v4"
+
+      - name: "Lint Dockerfile with hadolint"
+        uses: "hadolint/hadolint-action@v3.1.0"
+        with:
+          dockerfile: "./Dockerfile"
+          failure-threshold: "warning"

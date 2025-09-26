@@ -1,8 +1,9 @@
 # Traefik Log Rotation and Monitoring
 
-[![Docker Build](https://github.com/th3w1zard1/logrotate-traefik/actions/workflows/docker-build.yml/badge.svg)](https://github.com/th3w1zard1/logrotate-traefik/actions)
+[![Docker Build](https://github.com/bolabaden/logrotate-traefik/actions/workflows/docker-build.yml/badge.svg)](https://github.com/bolabaden/logrotate-traefik/actions)
+[![Docker Push](https://github.com/bolabaden/logrotate-traefik/actions/workflows/docker-push.yml/badge.svg)](https://github.com/bolabaden/logrotate-traefik/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Docker Image Size](https://img.shields.io/docker/image-size/your-registry/logrotate-traefik/latest)](https://hub.docker.com/r/your-registry/logrotate-traefik)
+[![Docker Image Size](https://img.shields.io/docker/image-size/bolabaden/logrotate-traefik/latest)](https://hub.docker.com/r/bolabaden/logrotate-traefik)
 
 A lightweight, Alpine-based Docker container that provides automated log rotation and real-time monitoring for Traefik access logs. Features configurable retention policies, colored log output, DNS resolution, and robust error handling.
 
@@ -24,7 +25,7 @@ A lightweight, Alpine-based Docker container that provides automated log rotatio
 
 1. **Download the example compose file:**
    ```bash
-   curl -o docker-compose.yml https://raw.githubusercontent.com/th3w1zard1/logrotate-traefik/main/examples/docker-compose.simple.yml
+   curl -o docker-compose.yml https://raw.githubusercontent.com/bolabaden/logrotate-traefik/master/examples/docker-compose.simple.yml
    ```
 
 2. **Start the service:**
@@ -46,7 +47,7 @@ docker run -d \
   -v /path/to/traefik/logs:/var/log/traefik:rw \
   -e TZ=America/Chicago \
   -e LOG_LEVEL=info \
-  your-registry/logrotate-traefik:latest
+ghcr.io/bolabaden/logrotate-traefik:latest
 ```
 
 ## 🔧 Configuration
@@ -111,7 +112,7 @@ services:
       - --log.format=json
 
   logrotate-traefik:
-    image: your-registry/logrotate-traefik:latest
+    image: ghcr.io/bolabaden/logrotate-traefik:latest
     container_name: logrotate-traefik
     restart: unless-stopped
     volumes:
@@ -171,7 +172,7 @@ TIMESTAMP           | STA | CLIENT             | HOST                      | MET
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/th3w1zard1/logrotate-traefik.git
+   git clone https://github.com/bolabaden/logrotate-traefik.git
    cd logrotate-traefik
    ```
 
@@ -312,9 +313,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-- **Issues**: [GitHub Issues](https://github.com/th3w1zard1/logrotate-traefik/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/th3w1zard1/logrotate-traefik/discussions)
-- **Documentation**: [Wiki](https://github.com/th3w1zard1/logrotate-traefik/wiki)
+- **Issues**: [GitHub Issues](https://github.com/bolabaden/logrotate-traefik/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/bolabaden/logrotate-traefik/discussions)
+- **Documentation**: [Wiki](https://github.com/bolabaden/logrotate-traefik/wiki)
 
 ## 🙏 Acknowledgments
 

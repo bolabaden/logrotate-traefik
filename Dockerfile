@@ -72,8 +72,8 @@ ENV TRAEFIK_LOG_DIR="$TRAEFIK_LOG_DIR" \
 # EXPOSE - not needed
 
 # Health check to ensure the container is functioning
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD [ -f "$TRAEFIK_LOG_DIR/$TRAEFIK_LOG_FILENAME" ] || exit 1
+#HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+#    CMD [ -f "$TRAEFIK_LOG_DIR/$TRAEFIK_LOG_FILENAME" ] || exit 1
 
 # Use entrypoint for proper signal handling and initialization
 ENTRYPOINT ["/entrypoint.sh"]

@@ -1,19 +1,25 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/compose-spec/compose-spec/master/schema/compose-spec.json
+
 # Simple Docker Compose configuration matching the original pattern
 # This is a drop-in replacement for the original logrotate-traefik service
 
-version: '3.8'
+
+
+networks:
+  web:
+    driver: bridge
+
+
 
 services:
   logrotate-traefik:
     # 🔹🔹 Logrotate for Traefik logs 🔹🔹
-    image: your-registry/logrotate-traefik:latest
-    container_name: logrotate-traefik
-    restart: always
-    
+    image: docker.io/bolabaden/logrotate-traefik:latest
+    container_name: logrotate-traefik    
+    network_mode: none
     volumes:
       # Mount Traefik logs directory
       - ${CONFIG_PATH:-./volumes}/traefik/logs:/var/log/traefik:rw
-    
     environment:
       TZ: ${TZ:-America/Chicago}
       # All other environment variables use container defaults
@@ -22,15 +28,8 @@ services:
       # LOGROTATE_MAXSIZE: 10M
       # LOGROTATE_MAXCOUNT: 20
       # STATUS_CODES: 100-999
-    
     # Resource constraints for lightweight operation
     cpus: 0.1
     mem_limit: 64M
     mem_reservation: 8M
-    
-    # Health check
-    healthcheck:
-      test: ["CMD", "test", "-f", "/var/log/traefik/traefik.log"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+    restart: always

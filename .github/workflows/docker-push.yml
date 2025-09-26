@@ -1,0 +1,268 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+
+name: "Docker Multi-Arch Build and Push"
+run-name: ${{ github.actor }} - building and pushing logrotate-traefik Docker images
+
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+permissions:
+  contents: "read"
+  packages: "write"
+  pull-requests: "read"
+
+on:
+  push:
+    branches: ["*"] # ["main", "master"]
+    tags: ["v*"] # ["v*"]
+  pull_request:
+    branches: ["main", "master"]
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: "logrotate-traefik"
+  REGISTRY_IMAGE: "ghcr.io/${{ github.repository }}"
+
+jobs:
+  build-push-logrotate-traefik:
+    name: "Build logrotate-traefik Image - ${{ matrix.platform_slash }}"
+    if: ${{ success() || failure() }}
+    runs-on: "${{ matrix.runner_label }}"
+    env:
+      # Variables for Docker tokens and authentication
+      IMAGE_NAME_GHCR_SUFFIXED: "${{ github.event.repository.name }}"
+      IMAGE_NAME_DOCKERHUB_SUFFIXED: "${{ github.event.repository.name }}"
+      DOCKERFILE_PATH: "./Dockerfile"
+      BUILD_CONTEXT: "."
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform_slash: "linux/amd64"
+            runner_label: "ubuntu-latest"
+          - platform_slash: "linux/arm64"
+            runner_label: "ubuntu-latest" # Note: using standard runner for ARM64
+    steps:
+      - name: "Checkout repository"
+        uses: "actions/checkout@v4"
+        if: ${{ success() || failure() }}
+        with:
+          fetch-depth: 0
+
+      - name: "Set up QEMU"
+        uses: "docker/setup-qemu-action@v3"
+        if: ${{ success() || failure() }}
+
+      - name: "Set up Docker Buildx"
+        uses: "docker/setup-buildx-action@v3"
+        if: ${{ success() || failure() }}
+
+      # Set token variables with fallbacks
+      - name: "Set Docker token variables"
+        id: set-tokens
+        run: |
+          # GitHub token with fallbacks
+          echo "GITHUB_AUTH_TOKEN=${{ secrets.GITHUB_TOKEN || secrets.GITHUB_PERSONAL_ACCESS_TOKEN || '' }}" >> $GITHUB_ENV
+
+          # Docker token with fallbacks
+          echo "DOCKER_TOKEN=${{ secrets.DOCKERHUB_TOKEN || secrets.DOCKER_ACCESS_TOKEN || secrets.DOCKER_HUB_TOKEN || secrets.DOCKER_TOKEN || '' }}" >> $GITHUB_ENV
+
+          # Docker username with fallbacks
+          echo "DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME || github.repository_owner }}" >> $GITHUB_ENV
+
+          # Docker auth flag
+          if [[ -n "${{ secrets.DOCKERHUB_TOKEN || secrets.DOCKER_ACCESS_TOKEN || secrets.DOCKER_HUB_TOKEN || secrets.DOCKER_TOKEN || '' }}" ]]; then
+            echo "DOCKERHUB_AUTH=true" >> $GITHUB_ENV
+          else
+            echo "DOCKERHUB_AUTH=false" >> $GITHUB_ENV
+          fi
+
+      - name: "Log in to GitHub Container Registry"
+        uses: "docker/login-action@v3"
+        if: ${{ success() || failure() }}
+        with:
+          registry: "ghcr.io"
+          username: "${{ github.repository_owner }}"
+          password: "${{ env.GITHUB_AUTH_TOKEN }}"
+
+      - name: "Log in to Docker Hub (if secrets present)"
+        if: env.DOCKERHUB_AUTH == 'true'
+        uses: "docker/login-action@v3"
+        with:
+          username: "${{ env.DOCKER_USERNAME }}"
+          password: "${{ env.DOCKER_TOKEN }}"
+
+      - name: "Extract Docker metadata"
+        id: "meta"
+        uses: "docker/metadata-action@v5"
+        if: ${{ success() || failure() }}
+        with:
+          images: |
+            ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME_GHCR_SUFFIXED }}
+            ${{ env.DOCKER_USERNAME }}/${{ env.IMAGE_NAME_DOCKERHUB_SUFFIXED }}
+          tags: |
+            # For release tags: apply the version tag and mark as latest
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest,enable={{is_default_branch}}
+            # For default branch (main/master): apply dev tag
+            type=raw,value=dev,enable=${{ github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+            # For branch pushes: apply the branch name as tag
+            type=ref,event=branch,prefix=
+            # For PRs: apply pr-{number} tag
+            type=ref,event=pr
+          labels: |
+            org.opencontainers.image.title=Traefik Log Rotation
+            org.opencontainers.image.description=Docker container for rotating and monitoring Traefik logs with configurable retention and real-time tailing
+            org.opencontainers.image.vendor=${{ github.repository_owner }}
+            org.opencontainers.image.licenses=MIT
+
+      - name: "Build and push Docker image"
+        uses: "docker/build-push-action@v6"
+        if: ${{ success() || failure() }}
+        with:
+          context: "${{ env.BUILD_CONTEXT }}"
+          file: "${{ env.DOCKERFILE_PATH }}"
+          platforms: "${{ matrix.platform_slash }}"
+          tags: "${{ steps.meta.outputs.tags }}"
+          labels: "${{ steps.meta.outputs.labels }}"
+          push: true
+          provenance: false
+          sbom: false
+          cache-from: "type=gha"
+          cache-to: "type=gha,mode=max"
+          build-args: |
+            PUID=1001
+            PGID=1001
+
+  security-scan:
+    name: "Security Scan"
+    runs-on: "ubuntu-latest"
+    needs: build-push-logrotate-traefik
+    if: ${{ always() && (needs.build-push-logrotate-traefik.result == 'success') }}
+    steps:
+      - name: "Checkout repository"
+        uses: "actions/checkout@v4"
+
+      - name: "Run Trivy vulnerability scanner"
+        uses: "aquasecurity/trivy-action@master"
+        with:
+          image-ref: "ghcr.io/${{ github.repository_owner }}/logrotate-traefik:latest"
+          format: "sarif"
+          output: "trivy-results.sarif"
+
+      - name: "Upload Trivy scan results to GitHub Security tab"
+        uses: "github/codeql-action/upload-sarif@v3"
+        if: always()
+        with:
+          sarif_file: "trivy-results.sarif"
+
+  test:
+    name: "Test Docker Image"
+    runs-on: "ubuntu-latest"
+    needs: build-push-logrotate-traefik
+    if: ${{ always() && (needs.build-push-logrotate-traefik.result == 'success') }}
+    steps:
+      - name: "Checkout repository"
+        uses: "actions/checkout@v4"
+
+      - name: "Set up test environment"
+        run: |
+          mkdir -p test-logs
+          echo '{"time":"2024-01-01T12:00:00Z","level":"info","msg":"test","ClientAddr":"192.168.1.100:54321","DownstreamStatus":200,"RequestHost":"example.com","RequestMethod":"GET","RequestPath":"/api/test","Duration":1500000,"ServiceName":"test-service"}' > test-logs/traefik.log
+
+      - name: "Test container startup"
+        run: |
+          # Pull the image that was just built
+          docker pull ghcr.io/${{ github.repository_owner }}/logrotate-traefik:dev || \
+          docker pull ghcr.io/${{ github.repository_owner }}/logrotate-traefik:latest
+
+          # Run container in background
+          docker run --rm -d \
+            --name test-logrotate-traefik \
+            -v $(pwd)/test-logs:/var/log/traefik \
+            -e LOG_LEVEL=debug \
+            -e LOGROTATE_LOOP_SLEEP=30 \
+            ghcr.io/${{ github.repository_owner }}/logrotate-traefik:dev || \
+          docker run --rm -d \
+            --name test-logrotate-traefik \
+            -v $(pwd)/test-logs:/var/log/traefik \
+            -e LOG_LEVEL=debug \
+            -e LOGROTATE_LOOP_SLEEP=30 \
+            ghcr.io/${{ github.repository_owner }}/logrotate-traefik:latest
+
+          # Wait for container to start
+          sleep 10
+
+          # Check if container is running
+          docker ps | grep test-logrotate-traefik
+
+          # Check container logs
+          docker logs test-logrotate-traefik
+
+          # Test health check
+          docker exec test-logrotate-traefik test -f /var/log/traefik/traefik.log
+
+          # Stop container
+          docker stop test-logrotate-traefik
+
+  create-release:
+    name: "Create Release"
+    runs-on: "ubuntu-latest"
+    needs: [build-push-logrotate-traefik, test, security-scan]
+    if: ${{ always() && startsWith(github.ref, 'refs/tags/v') && (needs.build-push-logrotate-traefik.result == 'success') && (needs.test.result == 'success') }}
+    permissions:
+      contents: write
+    steps:
+      - name: "Checkout repository"
+        uses: "actions/checkout@v4"
+
+      - name: "Extract version from tag"
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION"
+
+      - name: "Create Release"
+        uses: "actions/create-release@v1"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: "Release v${{ steps.version.outputs.version }}"
+          body: |
+            ## 🚀 Release v${{ steps.version.outputs.version }}
+
+            ### 📦 Docker Images
+            - `ghcr.io/${{ github.repository_owner }}/logrotate-traefik:${{ steps.version.outputs.version }}`
+            - `ghcr.io/${{ github.repository_owner }}/logrotate-traefik:latest`
+            - `${{ github.repository_owner }}/logrotate-traefik:${{ steps.version.outputs.version }}` (if Docker Hub configured)
+            - `${{ github.repository_owner }}/logrotate-traefik:latest` (if Docker Hub configured)
+
+            ### 🏗️ Supported Architectures
+            - `linux/amd64`
+            - `linux/arm64`
+
+            ### 🔧 Quick Start
+            ```bash
+            docker run -d \
+              --name logrotate-traefik \
+              --restart unless-stopped \
+              -v /path/to/traefik/logs:/var/log/traefik:rw \
+              -e TZ=America/Chicago \
+              ghcr.io/${{ github.repository_owner }}/logrotate-traefik:${{ steps.version.outputs.version }}
+            ```
+
+            ### 📋 What's Changed
+            See the [CHANGELOG](./CHANGELOG.md) for detailed changes.
+
+            ### 🔍 Security
+            This release has been scanned for vulnerabilities using Trivy.
+
+            ---
+            **Full Changelog**: https://github.com/${{ github.repository }}/compare/v${{ steps.version.outputs.version }}...v${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: false

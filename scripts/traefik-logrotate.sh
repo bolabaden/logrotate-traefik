@@ -278,7 +278,7 @@ wait_and_monitor_logs() {
                 
                 # Only resolve if it's not a private IP
                 if [[ ! "$client_ip" =~ ^(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|127\.) ]]; then
-                    resolved_addr=$(nslookup "$client_ip" 2>/dev/null | awk '/name =/ {print $4; exit}' | sed 's/\.$//')
+                    resolved_addr=$(nslookup "$client_ip" 2>/dev/null | awk '/name =/ {print $4; exit}' | sed 's/\.$//' || true)
                 fi
                 
                 if [[ -z "$resolved_addr" ]] || [[ "$resolved_addr" == "$client_ip" ]]; then
